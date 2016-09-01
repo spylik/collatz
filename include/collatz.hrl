@@ -7,5 +7,6 @@
         range = {0,0}       :: {pos_integer(),pos_integer()},   % randge for calculating
         max_chain = 0       :: pos_integer(),                   % max current chain
         in_work = 0         :: pos_integer(),                   % still in work
+        reply_to            :: pid(),
         parent              :: pid()
     }).

@@ -32,8 +32,8 @@
 
 %% API
 -export([
-        start_root_sup/2,
-        start_workers_sup/1,
+        start_root_sup/1,
+        start_workers_sup/0,
         init/1
     ]).
 
@@ -44,32 +44,30 @@
 
 -define(SERVER, ?MODULE).
 -define(WorkerSup, collatz_workers_sup).
+-define(TimeOut, 50).
 
 % @doc start root supervisor
--spec start_root_sup(MaxChilds,MaxNumberInChain) -> Result when
+-spec start_root_sup(MaxChilds) -> Result when
     MaxChilds :: maxchilds(),
-    MaxNumberInChain :: maxnumberinchain(),
     Result :: supervisor:startlink_ret().
 
-start_root_sup(MaxChilds,MaxNumberInChain) ->
-    supervisor:start_link({local, collatz_sup}, ?MODULE, [MaxChilds, MaxNumberInChain]).
+start_root_sup(MaxChilds) ->
+    supervisor:start_link({local, collatz_sup}, ?MODULE, [root, MaxChilds]).
 
 % @doc start workers supervisor
--spec start_workers_sup(MaxNumberInChain) -> Result when
-    MaxNumberInChain :: maxnumberinchain(),
+-spec start_workers_sup() -> Result when
     Result :: supervisor:startlink_ret().
 
-start_workers_sup(MaxNumberInChain) ->
-    supervisor:start_link({local, ?WorkerSup}, ?MODULE, {workers ,MaxNumberInChain}).
+start_workers_sup() ->
+    supervisor:start_link({local, ?WorkerSup}, ?MODULE, [workers]).
 
+% @doc init callbacks
 -spec init(Options) -> Result when
-    Options :: {worker, MaxNumberInChain} | {batcher, MaxChilds},
-    MaxNumberInChain :: maxnumberinchain(),
-    MaxChilds :: maxchilds(),
+    Options :: ['workers'] | [maxchilds()],
     Result :: {ok, {SupFlags :: supervisor:sup_flags(), [ChildSpec :: supervisor:child_spec()]}}.
 
-% @doc Root supervisor init callback
-init([_MaxChilds, MaxNumberInChain]) ->
+% Root supervisor init callback
+init([root,_MaxChilds]) ->
     RestartStrategy = {rest_for_one,1,10}, 
     
     % batcher worker
@@ -86,8 +84,8 @@ init([_MaxChilds, MaxNumberInChain]) ->
     % worker supervisor
     Workers = [
         #{
-            id => collatz_worker_sup,
-            start => {?MODULE, start_workers_sup, [MaxNumberInChain]},
+            id => collatz_workers_sup,
+            start => {?MODULE, start_workers_sup, []},
             restart => permanent,
             shutdown => brutal_kill,
             type => supervisor
@@ -96,13 +94,13 @@ init([_MaxChilds, MaxNumberInChain]) ->
     {ok, {RestartStrategy, lists:append([Workers])}};
 
 
-% @doc Workers supervisor init callback
-init({workers, MaxNumberInChain}) ->
+% Workers supervisor init callback
+init([workers]) ->
     RestartStrategy = {simple_one_for_one,1,10}, 
     Childrens = [
         #{
             id => collatz_worker,
-            start => {?MODULE, start_worker, [MaxNumberInChain]},
+            start => {?MODULE, start_worker, []},
             restart => temporary,
             shutdown => brutal_kill,
             type => worker
@@ -131,41 +129,55 @@ batcher_loop(#bstate{
         range = {Min,Max}, 
         max_chain = MChain,
         in_work = InWork,
-        parent = Parent} = State
+        parent = Parent,
+        reply_to = Reply} = State
     ) ->
+        ?debug("inwork ~p",[InWork]),
         process_flag(trap_exit, true),
         NewState = 
             receive
-                {result, Worker, ChainLength} when InWork =:= 1 ->
+                {result, Worker, Number, ChainLength} when Min<Max ->
+                    Worker ! {calc, Min+1},
+                    ?debug("Get result from worker ~p for number ~p and Min is ~p Max is ~p. ChainLength length is ~p",[Worker,Number,Min,Max,ChainLength]),
+                    State#bstate{max_chain = max(MChain,ChainLength), range = {Min+1,Max}, in_work = InWork-1};
+
+                {result, Worker, Number, ChainLength} ->
+                    NewInWork = InWork-1,
                     MaxChain = max(MChain,ChainLength),
-                    put({Min,Max}, MaxChain),
-                    error_logger:info_msg("Finish calculating job {~p,~p}. Maximum chain length is ~p",[MChain]),
-                    State#bstate{max_chain = MaxChain, free_proc = [Worker|FP], in_work = InWork-1};
+                    {NewAS,NewFP} = case NewInWork of
+                        0 ->
+                            lists:map(fun(Wrk) ->
+                                Wrk ! stop
+                            end, FP),
+                            Reply ! {result, MaxChain},
+                            {length(FP), []};
+                        _ -> ?here, {AS+1, [Worker|FP]}
+                    end,
+                    ?debug("Get result from worker ~p for number ~p and Min=:=Max. ChainLength length is ~p",[Worker,Number,ChainLength]),
+                    State#bstate{max_chain = max(MChain,ChainLength), a_slots = NewAS, free_proc = NewFP, in_work = NewInWork};
 
-                {result, Worker, ChainLength} ->
-                    State#bstate{max_chain = max(MChain,ChainLength), free_proc = [Worker|FP], in_work = InWork-1};
-
-                {batch, {Mn, Mx}} when InWork =/= 0 ->
+                {batch, {Mn, Mx}, _ReplyTo} when InWork =/= 0 ->
                     error_logger:warning_msg("WARNING: cannot not dispatch new job {~p,~p}.~n
                         Still have ~p numbers to calculate from previous batch {~p,~p}~n",[Mn,Mx,InWork,Min,Max]),
                     State;
 
-                {batch, {Mn, Mx}} when Mx-Mn < -1 ->
+                {batch, {Mn, Mx}, _ReplyTo} when Mx-Mn < -1 ->
                     error_logger:error_msg("ERROR: Number ~p must be lager than ~p or equal",[Mn,Mx]),
                     State;
 
-                {batch, {Mn, Mx}} when FP =:= [] andalso AS > 0 ->
+                {batch, {Mn, Mx}, ReplyTo} when FP =:= [] andalso AS > 0 ->
                     Jobs = Mx-Mn+1,
                     WorkersToStart = min(AS, Jobs),
                     lists:map(
                         fun(Number) ->
-                            {ok, Pid} = supervisor:start_child(whereis(?WorkerSup), self()),
+                            {ok, Pid} = supervisor:start_child(whereis(?WorkerSup), [self()]),
                             monitor(process, Pid),
                             Pid ! {calc, Number}
                     end, lists:seq(Mn,WorkersToStart)),
-                    State#bstate{a_slots = AS-WorkersToStart, range = {Mn+WorkersToStart, Mx}, in_work = Jobs};
+                    ?debug("Got dispatch message {~p,~p}",[Mn, Mx]),
+                    State#bstate{a_slots = AS-WorkersToStart, range = {Mn+WorkersToStart-1, Mx}, in_work = Jobs, reply_to = ReplyTo};
 
-                {'EXIT', Worker, idle} ->
+                {'DOWN', _, process, Worker, normal} ->
                     State#bstate{free_proc = lists:delete(Worker, FP), a_slots=AS+1};
 
                 {'EXIT', Parent, Reason} ->
@@ -175,9 +187,10 @@ batcher_loop(#bstate{
                     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], {state, State});
 
                 Msg -> 
-                    error_logger:warning_msg("WARNING: get unexpected message ~p",[Msg]),
+                    error_logger:warning_msg("WARNING: get unexpected message ~p when state ~p",[Msg,State]),
                     State
             end,
+        ?debug("state is ~p",[NewState]),
         batcher_loop(NewState).
 
 % sys protocol callbacks
@@ -190,36 +203,32 @@ system_terminate(Reason, _, _, _) ->
 system_code_change(Misc, _, _, _) ->
     {ok, Misc}.
 
+
 % @doc start worker callback
--spec start_worker(MaxNumberInChain,ReportTo) -> Result when
-    MaxNumberInChain :: maxnumberinchain(),
+-spec start_worker(ReportTo) -> Result when
     ReportTo :: pid() | atom(),
     Result :: {ok, pid()}.
 
-start_worker(MaxNumberInChain,ReportTo) ->
+start_worker(ReportTo) ->
     Pid = spawn_link(
         fun Loop() -> 
-            ChainLength = receive 
-                {calc, Number} ->
-                    calc_loop(MaxNumberInChain, Number, 0);
+            {Number,ChainLength} = receive 
+                {calc, Num} ->
+                    {Num,calc_loop(Num, 0)};
                 stop -> exit(normal)
             after 
-                100 -> exit(idle)    % stop innactive workers
+                ?TimeOut -> exit(normal)    % stop innactive workers
             end,
-            ?debug("got result ~p, going to report to ~p~n",[ChainLength,ReportTo]),
-            ReportTo ! {result, self(), ChainLength},
+            ReportTo ! {result, self(), Number, ChainLength},
             Loop()
         end
     ),
     {ok, Pid}.
 
 % @doc calculation loop
-calc_loop(_MN, 1, Length) -> Length+1;
-calc_loop(MN, Num, Length) when 
-        MN =/= infinity andalso Num > MN -> 
-    Length;
-calc_loop(MN, Num, Length) when 
+calc_loop(1, Length) -> Length+1;
+calc_loop(Num, Length) when 
         Num rem 2 =:= 0 ->
-    calc_loop(MN, Num div 2, Length+1);
-calc_loop(MN, Num, Length) ->
-    calc_loop(MN, Num*3+1, Length+1).
+    calc_loop(Num div 2, Length+1);
+calc_loop(Num, Length) ->
+    calc_loop(Num*3+1, Length+1).
