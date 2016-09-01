@@ -1,0 +1,13 @@
+{application,collatz,[
+    {description,"Collatz problem longest chain calculator"},
+    {vsn,"0.0.1"},
+    {id,"collatz"},
+    {modules,[]},
+    {registered,[collatz]},
+    {applications,[
+        kernel,
+        stdlib
+    ]},
+    {mod,{collatz_app,[]}},
+    {env,[]}
+]}.
