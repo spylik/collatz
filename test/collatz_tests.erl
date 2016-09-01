@@ -59,7 +59,7 @@ batcher_sysproc_test_() ->
                         ?assert(is_pid(whereis(collatz_workers_sup))),
                         ?assertEqual({workers, 0}, lists:keyfind(workers,1,supervisor:count_children(collatz_workers_sup))),
                         collatz_batcher ! {batch, {1,10}, self()},
-                        timer:sleep(10),
+                        timer:sleep(20),
                         ?assertEqual({workers, 3}, lists:keyfind(workers,1,supervisor:count_children(collatz_workers_sup))),
                         Result = receive 
                             {result, Data} -> Data

@@ -144,17 +144,18 @@ batcher_loop(#bstate{
                 {result, Worker, Number, ChainLength} ->
                     NewInWork = InWork-1,
                     MaxChain = max(MChain,ChainLength),
-                    {NewAS,NewFP} = case NewInWork of
+                    NewFP = [Worker|FP],
+                    case NewInWork of
                         0 ->
-                            lists:map(fun(Wrk) ->
-                                Wrk ! stop
-                            end, FP),
-                            Reply ! {result, MaxChain},
-                            {length(FP), []};
-                        _ -> ?here, {AS+1, [Worker|FP]}
+%                            lists:map(fun(Wrk) ->
+%                                ?debug("send stop to ~p",[Wrk]),
+%                                Wrk ! stop
+%                            end, NewFP),
+                            Reply ! {result, MaxChain};
+                        _ -> ok 
                     end,
                     ?debug("Get result from worker ~p for number ~p and Min=:=Max. ChainLength length is ~p",[Worker,Number,ChainLength]),
-                    State#bstate{max_chain = max(MChain,ChainLength), a_slots = NewAS, free_proc = NewFP, in_work = NewInWork};
+                    State#bstate{max_chain = max(MChain,ChainLength), free_proc = NewFP, in_work = NewInWork};
 
                 {batch, {Mn, Mx}, _ReplyTo} when InWork =/= 0 ->
                     error_logger:warning_msg("WARNING: cannot not dispatch new job {~p,~p}.~n
