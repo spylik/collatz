@@ -74,10 +74,19 @@ batcher_sysproc_test_() ->
                             {result, Data2} -> Data2
                         after 50 -> false
                         end,
-                        ?assertEqual(20, Result2)
-
+                        ?assertEqual(17, Result2),
+                        timer:sleep(110),
+                        collatz_batcher ! {batch, {7,9}, self()},
+                        timer:sleep(10),
+%                        ?assertEqual({workers, 3}, lists:keyfind(workers,1,supervisor:count_children(collatz_workers_sup))),
+                        Result3 = receive
+                            {result, Data3} -> Data3
+                        after 50 -> false
+                        end,
+                        ?assertEqual(20, Result3)
                     end
-                }
+                },
+                {<<"Able to stop batcher">>}
             ]
         }
     }.

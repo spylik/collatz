@@ -67,19 +67,19 @@ start_workers_sup() ->
     Result :: {ok, {SupFlags :: supervisor:sup_flags(), [ChildSpec :: supervisor:child_spec()]}}.
 
 % Root supervisor init callback
-init([root,_MaxChilds]) ->
+init([root,MaxChilds]) ->
     RestartStrategy = {rest_for_one,1,10}, 
     
     % batcher worker
-%    Batcher = [
-%        #{
-%            id => collatz_batcher,
-%            start => {?MODULE, start_batcher, [MaxChilds]},
-%            restart => temporary,
-%            shutdown => brutal_kill,
-%            type => worker
-%        }
-%    ],
+    Batcher = [
+        #{
+            id => collatz_batcher,
+            start => {?MODULE, start_batcher, [MaxChilds]},
+            restart => temporary,
+            shutdown => brutal_kill,
+            type => worker
+        }
+    ],
     
     % worker supervisor
     Workers = [
@@ -91,7 +91,7 @@ init([root,_MaxChilds]) ->
             type => supervisor
         }
     ],
-    {ok, {RestartStrategy, lists:append([Workers])}};
+    {ok, {RestartStrategy, lists:append([Batcher,Workers])}};
 
 
 % Workers supervisor init callback
@@ -132,30 +132,28 @@ batcher_loop(#bstate{
         parent = Parent,
         reply_to = Reply} = State
     ) ->
-        ?debug("inwork ~p",[InWork]),
+        %%?debug("inwork ~p",[InWork]),
         process_flag(trap_exit, true),
         NewState = 
             receive
-                {result, Worker, Number, ChainLength} when Min<Max ->
+                {result, Worker, _Number, ChainLength} when Min<Max ->
+                    %?debug("send ~p to ~p",[Min,Worker]),
                     Worker ! {calc, Min+1},
-                    ?debug("Get result from worker ~p for number ~p and Min is ~p Max is ~p. ChainLength length is ~p",[Worker,Number,Min,Max,ChainLength]),
+                    %?debug("Get result from worker ~p for number ~p and Min is ~p Max is ~p. ChainLength length is ~p",[Worker,Number,Min,Max,ChainLength]),
                     State#bstate{max_chain = max(MChain,ChainLength), range = {Min+1,Max}, in_work = InWork-1};
 
-                {result, Worker, Number, ChainLength} ->
+                {result, Worker, _Number, ChainLength} ->
                     NewInWork = InWork-1,
                     MaxChain = max(MChain,ChainLength),
-                    NewFP = [Worker|FP],
-                    case NewInWork of
+                    {Rn, Mcn, Rpl} = case NewInWork of
                         0 ->
-%                            lists:map(fun(Wrk) ->
-%                                ?debug("send stop to ~p",[Wrk]),
-%                                Wrk ! stop
-%                            end, NewFP),
-                            Reply ! {result, MaxChain};
-                        _ -> ok 
+                            Reply ! {result, MaxChain},
+                            {{0,0},0,undefined};
+                        _ -> 
+                            {{Min,Max},max(MChain,ChainLength),Reply}
                     end,
-                    ?debug("Get result from worker ~p for number ~p and Min=:=Max. ChainLength length is ~p",[Worker,Number,ChainLength]),
-                    State#bstate{max_chain = max(MChain,ChainLength), free_proc = NewFP, in_work = NewInWork};
+                    %?debug("Get result from worker ~p for number ~p and Min=:=Max. ChainLength length is ~p",[Worker,Number,ChainLength]),
+                    State#bstate{max_chain = Mcn, range = Rn, reply_to = Rpl, free_proc = [Worker|FP], in_work = NewInWork};
 
                 {batch, {Mn, Mx}, _ReplyTo} when InWork =/= 0 ->
                     error_logger:warning_msg("WARNING: cannot not dispatch new job {~p,~p}.~n
@@ -167,16 +165,30 @@ batcher_loop(#bstate{
                     State;
 
                 {batch, {Mn, Mx}, ReplyTo} when FP =:= [] andalso AS > 0 ->
+                    %?debug("Got dispatch message1 {~p,~p}",[Mn, Mx]),
                     Jobs = Mx-Mn+1,
                     WorkersToStart = min(AS, Jobs),
                     lists:map(
                         fun(Number) ->
                             {ok, Pid} = supervisor:start_child(whereis(?WorkerSup), [self()]),
                             monitor(process, Pid),
-                            Pid ! {calc, Number}
-                    end, lists:seq(Mn,WorkersToStart)),
-                    ?debug("Got dispatch message {~p,~p}",[Mn, Mx]),
+                            Pid ! {calc, Mn+Number}
+                    end, lists:seq(1,WorkersToStart)),
                     State#bstate{a_slots = AS-WorkersToStart, range = {Mn+WorkersToStart-1, Mx}, in_work = Jobs, reply_to = ReplyTo};
+                
+                {batch, {Mn, Mx}, ReplyTo} when FP =/= [] ->
+                    %?debug("Got dispatch message2 {~p,~p}",[Mn, Mx]),
+                    Jobs = Mx-Mn+1,
+                    WorkersToStart = min(length(FP), Jobs),
+                    F = fun Loop(W, N, N) -> W;
+                            Loop([H|T],N,NM) ->
+                                %?debug("send ~p to ~p",[N,H]),
+                                H ! {calc, N},
+                                Loop(T,N+1,NM)
+                        end,
+                    NewMin = Mn+WorkersToStart,
+                    NewFW = F(FP,Mn,NewMin),
+                    State#bstate{free_proc = NewFW, range = {NewMin-1, Mx}, in_work = Jobs, reply_to = ReplyTo};
 
                 {'DOWN', _, process, Worker, normal} ->
                     State#bstate{free_proc = lists:delete(Worker, FP), a_slots=AS+1};
@@ -191,7 +203,7 @@ batcher_loop(#bstate{
                     error_logger:warning_msg("WARNING: get unexpected message ~p when state ~p",[Msg,State]),
                     State
             end,
-        ?debug("state is ~p",[NewState]),
+        %?debug("state is ~p",[NewState]),
         batcher_loop(NewState).
 
 % sys protocol callbacks
