@@ -34,7 +34,8 @@
 -export([
         start_root_sup/1,
         start_workers_sup/0,
-        init/1
+        init/1,
+        syn_longest_chain/2
     ]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%% temporary
@@ -44,6 +45,7 @@
 
 -define(SERVER, ?MODULE).
 -define(WorkerSup, collatz_workers_sup).
+-define(Batcher, collatz_batcher).
 -define(TimeOut, 50).
 
 % @doc start root supervisor
@@ -73,7 +75,7 @@ init([root,MaxChilds]) ->
     % batcher worker
     Batcher = [
         #{
-            id => collatz_batcher,
+            id => ?Batcher,
             start => {?MODULE, start_batcher, [MaxChilds]},
             restart => temporary,
             shutdown => brutal_kill,
@@ -115,11 +117,16 @@ init([workers]) ->
     Result :: {ok, pid()}.
 
 start_batcher(Maxchilds) ->
-    Pid = proc_lib:spawn_link(?MODULE, batcher_loop, [init, Maxchilds, self()]),
-    register(collatz_batcher, Pid),
+    Pid = proc_lib:spawn_link(?MODULE, batcher_loop, [Maxchilds, self()]),
+    register(?Batcher, Pid),
     {ok, Pid}.
 
-batcher_loop(init, Maxchilds, Parent) ->
+% @doc batcher loop init process (we set process_flag here and going to loop)
+-spec batcher_loop(Maxchilds, Parent) -> any() when
+    Maxchilds :: maxchilds(),
+    Parent :: pid().
+
+batcher_loop(Maxchilds, Parent) ->
     process_flag(trap_exit, true),
     batcher_loop(#bstate{a_slots = Maxchilds, parent = Parent}).
 
@@ -245,3 +252,11 @@ calc_loop(Num, Length) when
     calc_loop(Num div 2, Length+1);
 calc_loop(Num, Length) ->
     calc_loop(Num*3+1, Length+1).
+
+% @doc calculate longest chain
+
+syn_longest_chain(Min,Max) ->
+    ?Batcher ! {batch, {Min,Max}, self()},
+    receive
+        {result, Data} -> Data
+    end.

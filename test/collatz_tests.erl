@@ -85,8 +85,7 @@ batcher_sysproc_test_() ->
                         end,
                         ?assertEqual(20, Result3)
                     end
-                },
-                {<<"Able to stop batcher">>}
+                }
             ]
         }
     }.
