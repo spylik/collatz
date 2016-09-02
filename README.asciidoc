@@ -5,14 +5,16 @@ image:https://api.travis-ci.org/spylik/collatz.svg?branch=master[title="Build St
 This repo contain Erlang implementation for https://en.wikipedia.org/wiki/Collatz_conjecture[Collatz problem] longest chain parallel computation.
 
 The following iterative sequence is defined for the set of positive integers:
+
 n → n/2 (n is even) n → 3n + 1 (n is odd)
 
 Using the rule for number 13, we able generate the following sequence:
+
 13 → 40 → 20 → 10 → 5 → 16 → 8 → 4 → 2 → 1
 
 Length of this chain is 10 (9 step to reach 1).
 
-The main idea of Collatz conjecture is if you take any positive integer "n" and if "n" is even, 
+The main idea of Collatz conjecture is if you take any positive integer "n" and if "n" is even,
 divide it by 2 to get n / 2 and  if "n" is odd, multiply it by 3 and add 1 to obtain 3n + 1. 
 Repeating the process (which has been called "Half Or Triple Plus One") indefinitely for any 
 number (not proved) you will always reach 1.
