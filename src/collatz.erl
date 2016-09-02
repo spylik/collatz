@@ -139,7 +139,7 @@ batcher_loop(#bstate{
         parent = Parent,
         reply_to = Reply} = State
     ) ->
-        %%?debug("inwork ~p",[InWork]),
+        %?debug("inwork ~p",[InWork]),
         process_flag(trap_exit, true),
         NewState = 
             receive
@@ -173,26 +173,34 @@ batcher_loop(#bstate{
 
                 {batch, {Mn, Mx}, ReplyTo} when FP =:= [] andalso AS > 0 ->
                     %?debug("Got dispatch message1 {~p,~p}",[Mn, Mx]),
+                    F = fun Loop(W, N, N) -> W;
+                            Loop(W, N, NM) ->
+                                {ok, Pid} = supervisor:start_child(whereis(?WorkerSup), [self()]),
+                                monitor(process, Pid),
+                                %?debug("send ~p to ~p",[N,Pid]),
+                                Pid ! {calc, N},
+                                Loop([Pid|W],N+1,NM)
+                        end,
+
                     Jobs = Mx-Mn+1,
+                    %?debug("jobs is ~p, AS: ~p",[Jobs,AS]),
                     WorkersToStart = min(AS, Jobs),
-                    lists:map(
-                        fun(Number) ->
-                            {ok, Pid} = supervisor:start_child(whereis(?WorkerSup), [self()]),
-                            monitor(process, Pid),
-                            Pid ! {calc, Mn+Number}
-                    end, lists:seq(1,WorkersToStart)),
-                    State#bstate{a_slots = AS-WorkersToStart, range = {Mn+WorkersToStart-1, Mx}, in_work = Jobs, reply_to = ReplyTo};
+                    %?debug("WorkersToStart ~p, Mn ~p",[WorkersToStart,Mn]),
+                    NewMin = (Mn+WorkersToStart),
+                    %?debug("min is ~p, newmin is ~p",[Mn,NewMin]),
+                    _NewFW = F([],Mn,NewMin),
+                    State#bstate{a_slots = AS-WorkersToStart, range = {NewMin-1, Mx}, in_work = Jobs, reply_to = ReplyTo};
                 
                 {batch, {Mn, Mx}, ReplyTo} when FP =/= [] ->
                     %?debug("Got dispatch message2 {~p,~p}",[Mn, Mx]),
-                    Jobs = Mx-Mn+1,
-                    WorkersToStart = min(length(FP), Jobs),
                     F = fun Loop(W, N, N) -> W;
                             Loop([H|T],N,NM) ->
                                 %?debug("send ~p to ~p",[N,H]),
                                 H ! {calc, N},
                                 Loop(T,N+1,NM)
                         end,
+                    Jobs = Mx-Mn+1,
+                    WorkersToStart = min(length(FP), Jobs),
                     NewMin = Mn+WorkersToStart,
                     NewFW = F(FP,Mn,NewMin),
                     State#bstate{free_proc = NewFW, range = {NewMin-1, Mx}, in_work = Jobs, reply_to = ReplyTo};

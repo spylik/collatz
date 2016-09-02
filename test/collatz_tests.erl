@@ -168,9 +168,34 @@ test6_simple_test_() ->
         }
     }.
 
+final_test_() ->
+    {setup,
+        fun start_app/0,
+        fun cleanup/1, 
+        {inorder,
+            [
+                {<<"Able to calculate longest chain via sync call">>,
+                    fun() ->
+                            ?assertEqual(1, ?TM:syn_longest_chain(1,1)),
+                            ?assertEqual(2, ?TM:syn_longest_chain(1,2)),
+                            ?assertEqual(8, ?TM:syn_longest_chain(1,3)),
+                            ?assertEqual(8, ?TM:syn_longest_chain(1,4)),
+                            ?assertEqual(8, ?TM:syn_longest_chain(1,5)),
+                            ?assertEqual(9, ?TM:syn_longest_chain(1,6)),
+                            ?assertEqual(17, ?TM:syn_longest_chain(1,7)),
+                            ?assertEqual(17, ?TM:syn_longest_chain(1,8)),
+                            ?assertEqual(20, ?TM:syn_longest_chain(1,9)),
+                            ?assertEqual(179, ?TM:syn_longest_chain(1,1000))
+                    end
+                }
+            ]
+        }
+    }.
+
+
 start_app() -> application:ensure_all_started(?TESTAPP).
 
-%cleanup(_) -> application:stop(?TESTAPP).
+cleanup(_) -> application:stop(?TESTAPP).
 
 disable_output() ->
     error_logger:tty(false).

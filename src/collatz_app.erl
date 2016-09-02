@@ -37,7 +37,7 @@
     Result :: {'ok', pid()} | {'ok', pid(), State :: term()} | {'error', Reason :: term()}.
 
 start(_Type, _Args) ->
-    collatz:start_root_sup(10).
+    collatz:start_root_sup(1000).
 
 % @doc stop application (we stopping cowboy listener here)
 -spec stop(State) -> Result when
