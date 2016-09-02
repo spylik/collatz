@@ -1,0 +1,38 @@
+image:https://api.travis-ci.org/spylik/collatz.svg?branch=master[title="Build Status", link="https://travis-ci.org/spylik/collatz.svg"] image:https://codecov.io/gh/spylik/collatz/branch/master/graph/badge.svg[title="Codecov", link="https://codecov.io/gh/spylik/collatz/branches/master"]
+
+= Collatz
+
+This repo contain Erlang implementation for https://en.wikipedia.org/wiki/Collatz_conjecture[Collatz problem] longest chain parallel computation.
+
+The following iterative sequence is defined for the set of positive integers:
+n → n/2 (n is even) n → 3n + 1 (n is odd)
+
+Using the rule for number 13, we able generate the following sequence:
+13 → 40 → 20 → 10 → 5 → 16 → 8 → 4 → 2 → 1
+
+Length of this chain is 10 (9 step to reach 1).
+
+The main idea of Collatz conjecture is if you take any positive integer "n" and if "n" is even, 
+divide it by 2 to get n / 2 and  if "n" is odd, multiply it by 3 and add 1 to obtain 3n + 1. 
+Repeating the process (which has been called "Half Or Triple Plus One") indefinitely for any 
+number (not proved) you will always reach 1.
+
+The conjecture is that no matter what number you start with, you will always eventually reach 1.
+
+This repo contain example how to find longest Collatz chain in range of 
+numbers like {5,30} (start from 5, end 30).
+
+== Usage: 
+
+You need to build as release, or start erlang shell and run 'application:start(collatz).'
+
+Then you can:
+
+[source,erlang]
+----
+collatz:syn_longest_chain(1,1000000). 
+% you will get 525 here (524 step to reach 1)
+----
+
+It's posible to define maximum number of workers in sys.config.
+For different ranges different value of maximum number of workers may be fair.
