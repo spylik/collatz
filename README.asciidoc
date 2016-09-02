@@ -1,4 +1,4 @@
-image:https://api.travis-ci.org/spylik/collatz.svg?branch=master[title="Build Status", link="https://travis-ci.org/spylik"] image:https://codecov.io/gh/spylik/collatz/branch/master/graph/badge.svg[title="Codecov", link="https://codecov.io/gh/spylik/collatz/branches/master"]
+image:https://api.travis-ci.org/spylik/collatz.svg?branch=master[title="Build Status", link="https://travis-ci.org/spylik/collatz"] image:https://codecov.io/gh/spylik/collatz/branch/master/graph/badge.svg[title="Codecov", link="https://codecov.io/gh/spylik/collatz/branches/master"]
 
 = Collatz
 
